@@ -1,59 +1,47 @@
 from memory import Memory
-from page_table import  PageTable
+from page_table import PageTable
 from tlb import TLB
 
 # Configurações básicas
 PAGE_SIZE = 2**12  # 4 KB
 
-class MMU_handler:
-    """ Gerenciador de Memória (MMU) que coordena TLB, tabela de páginas e memória """
-    def __init__(self, policy="LRU"):
-        self.tlb = TLB()
+class MMU:
+    """ Gerenciador de Memória (MMU) coordenando TLB, tabela de páginas e memória física """
+    def __init__(self, algorithm="LRU"):
+        self.tlb = TLB(algorithm=algorithm)
         self.page_table = PageTable()
-        self.memory = Memory(policy)
+        self.memory = Memory(algorithm=algorithm)
         self.tlb_hits = 0
-        self.tlb_misses = 0
+        self.tlb_miss = 0
         self.page_faults = 0
-        self.disk_accesses = 0  # Contabiliza acessos ao disco
 
     def translate_address(self, logical_address):
-        """ Traduz um endereço lógico para físico """
-        page_number = logical_address >> 12  # Obtém os 20 bits da página
-        offset = logical_address & 0xFFF  # Obtém os 12 bits de deslocamento
-
-        # 1. Verifica se a página está na TLB
-        frame_number = self.tlb.get(page_number)
-        if frame_number is not None:
+        """ Traduz um endereço lógico para um endereço físico """
+        p = logical_address >> 12 # Obtém o número da página (20 bits mais significativos)
+        d = logical_address & 0xFFF  # Obtém o deslocamento Offset dentro da página (12 bits menos significativos)
+        
+        # Verifica se a página está na TLB (cache de endereços)
+        frame_number = self.tlb.search_tlb(page_number=p)  # Busca na TLB
+        
+        if frame_number is not None:  # Hit -> achou na TLB
             self.tlb_hits += 1
-        else:
-            self.tlb_misses += 1
-            frame_number = self.page_table.get_frame(page_number)
+        
+        else:  # Nao achou -> Precisa buscar na Tabela de Páginas
+            self.tlb_miss += 1
+            frame_number = self.page_table.search_table(page_number=p)# A página está carregada na RAM?
 
-            if frame_number is None:
-                # 2. Page Fault: carregar página na memória
-                self.page_faults += 1
-                self.disk_accesses += 1  # Contabiliza acesso ao disco
-                frame_number = self.memory.allocate(page_number)
-                self.page_table.update(page_number, frame_number)
-
-            # Atualiza a TLB
-            self.tlb.update(page_number, frame_number)
-
-        # Se for Segunda Chance, atualiza bit de referência
-        if self.memory.policy == "SC":
-            self.memory.reference_bits[frame_number] = 1
-        # Se for LRU, atualiza ordem de uso
-        elif self.memory.policy == "LRU":
-            if frame_number in self.memory.usage_order:
-                self.memory.usage_order.remove(frame_number)
-            self.memory.usage_order.append(frame_number)
-
-        # Endereço físico = (frame * tamanho da página) + offset
-        return (frame_number * PAGE_SIZE) + offset
+            if frame_number is None:  # Nao achou na tabela -> Página não está na RAM
+                self.page_faults += 1  
+                # Aloca um novo frame na memória (ou substitui uma página)
+                frame_number = self.memory.allocate(page_number=p)  
+                self.page_table.update(p, frame_number)# Atualiza a Tabela de Páginas
+            
+            # Atualiza a TLB para futuras referências rápidas
+            self.tlb.update(p, frame_number)
     
-def run_simulation(trace_file, policy="LRU"):
-    """ Executa o simulador lendo um arquivo de trace """
-    mmu = MMU_handler(policy)
+def run_simulation(trace_file, algorithm="LRU"):
+    """ Executa o simulador comparando as políticas LRU e Segunda Chance """
+    mmu = MMU(algorithm)
 
     with open(trace_file, "r") as file:
         for line in file:
@@ -62,28 +50,31 @@ def run_simulation(trace_file, policy="LRU"):
                 continue
             address, operation = parts
             logical_address = int(address, 16)  # Converte de hexadecimal para inteiro
-            mmu.translate_address(logical_address)
+            mmu.translate_address(logical_address)  # metodo para VERIFICA SE HÁ UM NOVO ENDEREÇO
 
     # Exibir estatísticas
-    print(f"Política: {policy}")
+    print(f"Algoritmo usado: {algorithm}")
     print(f"TLB Hits: {mmu.tlb_hits}")
-    print(f"TLB Misses: {mmu.tlb_misses}")
-    print(f"Page Faults: {mmu.page_faults}")
-    print(f"Acessos ao disco: {mmu.disk_accesses}")
-
+    print(f"TLB Misses: {mmu.tlb_miss}")
+    print(f"Falhas de Paginas - Acesso Disco: {mmu.page_faults}")
+    
 # Teste com um arquivo de trace
 print("sixpack")
-run_simulation("sixpack.trace", policy="LRU")
-run_simulation("sixpack.trace", policy="SC")
+run_simulation("sixpack.trace", algorithm="LRU")
+run_simulation("sixpack.trace", algorithm="SC")
+print("--------------------------------------")
 
 print("bzip")
-run_simulation("bzip.trace", policy="LRU")
-run_simulation("bzip.trace", policy="SC")
+run_simulation("bzip.trace", algorithm="LRU")
+run_simulation("bzip.trace", algorithm="SC")
+print("--------------------------------------")
 
 print("gcc")
-run_simulation("gcc.trace", policy="LRU")
-run_simulation("gcc.trace", policy="SC")
+run_simulation("gcc.trace", algorithm="LRU")
+run_simulation("gcc.trace", algorithm="SC")
+print("--------------------------------------")
 
 print("swim")
-run_simulation("swim.trace", policy="LRU")
-run_simulation("swim.trace", policy="SC")
+run_simulation("swim.trace", algorithm="LRU")
+run_simulation("swim.trace", algorithm="SC")
+print("--------------------------------------")
