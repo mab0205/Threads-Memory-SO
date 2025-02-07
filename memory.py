@@ -1,7 +1,7 @@
 from collections import deque
 
 NUM_FRAMES = 64  # Quantidade de frames físicos
-git
+
 class Memory:
     """ 
     Memória RAM (Frames físicos)
